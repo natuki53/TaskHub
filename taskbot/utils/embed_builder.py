@@ -12,6 +12,20 @@ def _truncate(text: str, limit: int = 40) -> str:
     return text[: max(0, limit - 3)] + "..."
 
 
+def _status_label(status: str | None) -> str:
+    if status == "done":
+        return "完了"
+    if status == "todo":
+        return "未完了"
+    return status or "未完了"
+
+
+def _due_label(due_at: str | None) -> str:
+    if not due_at:
+        return "なし"
+    return due_at.strip()
+
+
 def build_home_embed(summary: dict) -> discord.Embed:
     embed = discord.Embed(title="タスクホーム", color=0x2B90D9)
     embed.add_field(name="未完了", value=str(summary.get("todo_count", 0)), inline=True)
@@ -31,10 +45,10 @@ def build_task_list_embed(tasks: list[dict], list_title: str, page: int, page_co
 
     lines: list[str] = []
     for task in tasks:
-        due_text = task.get("due_at") or "なし"
+        due_text = _due_label(task.get("due_at"))
         line = (
             f"#{task['id']} | {_truncate(task['title'])} | {task['priority']} | "
-            f"{due_text} | {task['status']}"
+            f"{due_text} | {_status_label(task.get('status'))}"
         )
         lines.append(line)
 
@@ -48,8 +62,8 @@ def build_task_detail_embed(task: dict) -> discord.Embed:
     embed.add_field(name="タイトル", value=task.get("title") or "", inline=False)
     embed.add_field(name="説明", value=task.get("description") or "(なし)", inline=False)
     embed.add_field(name="優先度", value=task.get("priority") or "medium", inline=True)
-    embed.add_field(name="締切", value=task.get("due_at") or "なし", inline=True)
-    embed.add_field(name="状態", value=task.get("status") or "todo", inline=True)
+    embed.add_field(name="締切", value=_due_label(task.get("due_at")), inline=True)
+    embed.add_field(name="状態", value=_status_label(task.get("status")), inline=True)
     embed.add_field(name="作成日時", value=task.get("created_at") or "", inline=False)
     embed.add_field(name="更新日時", value=task.get("updated_at") or "", inline=False)
     completed_at = task.get("completed_at")
@@ -61,7 +75,7 @@ def build_task_detail_embed(task: dict) -> discord.Embed:
 def build_reminder_embed(task: dict) -> discord.Embed:
     embed = discord.Embed(title="⏰ タスクリマインド", color=0xF5A623)
     embed.add_field(name="タイトル", value=task.get("title") or "", inline=False)
-    embed.add_field(name="締切", value=task.get("due_at") or "なし", inline=True)
+    embed.add_field(name="締切", value=_due_label(task.get("due_at")), inline=True)
     embed.add_field(name="優先度", value=task.get("priority") or "medium", inline=True)
     if task.get("description"):
         embed.add_field(name="説明", value=_truncate(task.get("description"), 200), inline=False)

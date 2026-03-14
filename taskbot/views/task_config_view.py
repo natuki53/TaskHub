@@ -36,10 +36,48 @@ class TaskConfigView(discord.ui.View):
         self.reminder_select.callback = self._on_select
         self.add_item(self.reminder_select)
 
+    async def _send_ephemeral(self, interaction: discord.Interaction, message: str) -> None:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
+    async def _edit_message(
+        self,
+        interaction: discord.Interaction,
+        *,
+        embed: discord.Embed,
+        view: discord.ui.View,
+    ) -> None:
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+
+    def _selected_minutes_from_interaction(
+        self, interaction: discord.Interaction
+    ) -> int | None:
+        raw_value: str | None = None
+
+        data = interaction.data or {}
+        values = data.get("values")
+        if isinstance(values, list) and values:
+            raw_value = str(values[0])
+        elif self.reminder_select.values:
+            raw_value = str(self.reminder_select.values[0])
+
+        if raw_value is None:
+            return None
+
+        try:
+            return int(raw_value)
+        except ValueError:
+            return None
+
     async def _check_owner(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                "これはあなた用の操作画面ではありません。", ephemeral=True
+            await self._send_ephemeral(
+                interaction, "これはあなた用の操作画面ではありません。"
             )
             return False
         return True
@@ -65,7 +103,13 @@ class TaskConfigView(discord.ui.View):
         if not await self._check_owner(interaction):
             return
 
-        minutes = int(self.reminder_select.values[0])
+        minutes = self._selected_minutes_from_interaction(interaction)
+        if minutes is None:
+            await self._send_ephemeral(
+                interaction, "設定値の読み取りに失敗しました。もう一度選択してください。"
+            )
+            return
+
         reminders_enabled = minutes > 0
         task_service.upsert_user_settings(
             user_id=str(self.owner_id),
@@ -76,13 +120,19 @@ class TaskConfigView(discord.ui.View):
         self.settings = task_service.get_user_settings(str(self.owner_id))
         self.reminder_select.options = self._build_options(self.settings)
         embed = build_config_embed(self.settings)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._edit_message(interaction, embed=embed, view=self)
 
-    @discord.ui.button(label="🔙 ホーム", style=discord.ButtonStyle.secondary)
-    async def go_home(self, button: discord.ui.Button, interaction: discord.Interaction):
+    @discord.ui.button(label="✖ 終了", style=discord.ButtonStyle.secondary)
+    async def close(self, button: discord.ui.Button, interaction: discord.Interaction):
         if not await self._check_owner(interaction):
             return
-        from taskbot.views.task_home_view import build_home_message
 
-        embed, view = build_home_message(self.owner_id)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.defer()
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            if interaction.message is not None:
+                try:
+                    await interaction.message.delete()
+                except discord.HTTPException:
+                    await interaction.edit_original_response(content=None, embed=None, view=None)

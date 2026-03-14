@@ -141,6 +141,21 @@ def complete_task(user_id: str, task_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def reopen_task(user_id: str, task_id: int) -> bool:
+    now_str = to_storage_string(now_local())
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'todo', completed_at = NULL, updated_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (now_str, task_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def delete_task(user_id: str, task_id: int) -> bool:
     # MVPでは物理削除。将来的には archived フラグで論理削除に拡張可能。
     with get_connection() as conn:

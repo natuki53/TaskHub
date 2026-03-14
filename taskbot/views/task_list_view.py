@@ -16,6 +16,12 @@ LIST_TITLES = {
 }
 
 
+def _due_option_label(due_at: str | None) -> str:
+    if not due_at:
+        return "締切なし"
+    return due_at.strip()
+
+
 def build_task_list_message(
     owner_id: int, list_type: str, page: int
 ) -> tuple[discord.Embed, discord.ui.View]:
@@ -27,6 +33,8 @@ def build_task_list_message(
 
 
 class TaskListView(discord.ui.View):
+    EMPTY_OPTION_VALUE = "__empty__"
+
     def __init__(
         self,
         owner_id: int,
@@ -44,12 +52,15 @@ class TaskListView(discord.ui.View):
         self.total = total
         self.page_count = max(1, math.ceil(total / per_page))
 
+        options = self._build_options(tasks)
+        has_tasks = len(tasks) > 0
+
         self.task_select = discord.ui.Select(
             placeholder="タスクを選択",
-            options=self._build_options(tasks),
+            options=options,
             min_values=1,
             max_values=1,
-            disabled=len(tasks) == 0,
+            disabled=not has_tasks,
         )
         self.task_select.callback = self._on_task_select
         self.add_item(self.task_select)
@@ -65,11 +76,20 @@ class TaskListView(discord.ui.View):
         return True
 
     def _build_options(self, tasks: List[dict]) -> List[discord.SelectOption]:
+        if not tasks:
+            return [
+                discord.SelectOption(
+                    label="表示できるタスクがありません",
+                    value=self.EMPTY_OPTION_VALUE,
+                    description="別の一覧を選択してください",
+                )
+            ]
+
         options: List[discord.SelectOption] = []
         for task in tasks:
             label = f"#{task['id']} {task['title']}"
             label = label if len(label) <= 100 else label[:97] + "..."
-            description = task.get("due_at") or "締切なし"
+            description = _due_option_label(task.get("due_at"))
             options.append(
                 discord.SelectOption(
                     label=label,
@@ -111,7 +131,14 @@ class TaskListView(discord.ui.View):
         if not await self._check_owner(interaction):
             return
 
-        task_id = int(self.task_select.values[0])
+        selected = self.task_select.values[0]
+        if selected == self.EMPTY_OPTION_VALUE:
+            await interaction.response.send_message(
+                "表示できるタスクがありません。", ephemeral=True
+            )
+            return
+
+        task_id = int(selected)
         task = task_service.get_task_by_id(str(self.owner_id), task_id)
         if not task:
             await interaction.response.send_message(
